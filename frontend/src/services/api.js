@@ -1,4 +1,9 @@
+// api.js
+import  { firebaseStorageService }  from '../services/firebaseStorage'; // Asegúrate de que la ruta sea correcta
+
+
 const API_URL = 'http://localhost:5000/api';
+
 
 // Función para manejar errores de fetch
 const handleResponse = async (response) => {
@@ -135,29 +140,62 @@ export const postService = {
   }
 };
 
-// Servicio para contenido multimedia
+
 export const contenidoService = {
-  // Subir archivo al servidor
-  async upload(file, postId) {
+  // Subir archivo usando Firebase Storage
+  async upload(file, postId, onProgress = null) {
     const user = authService.getCurrentUser();
     
     if (!user) {
       return Promise.reject('Usuario no autenticado');
     }
-    
-    const formData = new FormData();
-    formData.append('archivo', file);
-    formData.append('postId', postId);
-    
-    const response = await fetch(`${API_URL}/contenido/subir`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${user.token}`
-      },
-      body: formData
-    });
-    
-    return handleResponse(response);
+
+    try {
+      // 1. Primero obtener token de Firebase desde tu backend
+      const firebaseTokenResponse = await fetch(`${API_URL}/auth/firebase-token`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+      
+      const { firebaseToken } = await handleResponse(firebaseTokenResponse);
+      
+      // 2. Autenticar con Firebase
+      await firebaseStorageService.authenticateWithFirebase(firebaseToken);
+      
+      // 3. Subir archivo a Firebase Storage
+      const uploadResult = await firebaseStorageService.uploadFile(
+        file, 
+        user.id, 
+        postId, 
+        onProgress
+      );
+      
+      // 4. Guardar información en tu base de datos
+      const contenidoData = {
+        postId,
+        tipo: file.type.startsWith('video/') ? 'video' : 'imagen',
+        url: uploadResult.url,
+        nombreArchivo: uploadResult.originalName,
+        tamano: uploadResult.size,
+        firebase_path: `posts/${user.id}/${postId}/${uploadResult.fileName}`
+      };
+      
+      const response = await fetch(`${API_URL}/contenido/firebase`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        },
+        body: JSON.stringify(contenidoData)
+      });
+      
+      return handleResponse(response);
+      
+    } catch (error) {
+      console.error('Error subiendo a Firebase:', error);
+      throw error;
+    }
   },
   
   // Eliminar un contenido
@@ -179,15 +217,15 @@ export const contenidoService = {
   }
 };
 
-// Este servicio lo usaremos más adelante para integrarlo con Firebase Storage
+// Servicio de almacenamiento - ACTUALIZADO
 export const storageService = {
-  // Subir archivo a Firebase Storage
-  async uploadFile(file) {
-    // Aquí irá la lógica para subir a Firebase
-    // Por ahora devolvemos una URL simulada
-    return {
-      url: URL.createObjectURL(file),
-      fileName: file.name
-    };
+  // Subir archivo a Firebase Storage (interfaz simplificada)
+  async uploadFile(file, userId, postId, onProgress = null) {
+    return firebaseStorageService.uploadFile(file, userId, postId, onProgress);
+  },
+  
+  // Eliminar archivo de Firebase Storage
+  async deleteFile(filePath) {
+    return firebaseStorageService.deleteFile(filePath);
   }
 };

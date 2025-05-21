@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const usuarioModel = require('../models/usuario');
+const firebaseService = require('../services/firebaseService');
 require('dotenv').config();
 
 exports.registro = async (req, res) => {
@@ -72,5 +73,22 @@ exports.login = async (req, res) => {
   } catch (error) {
     console.error('Error en login:', error);
     res.status(500).json({ error: 'Error al iniciar sesión' });
+  }
+};
+
+exports.getFirebaseToken = async (req, res) => {
+  try {
+    const userId = req.usuario.id;
+    
+    // Generar token personalizado de Firebase
+    const firebaseToken = await firebaseService.generateCustomToken(userId);
+    
+    res.json({
+      firebaseToken,
+      mensaje: 'Token de Firebase generado exitosamente'
+    });
+  } catch (error) {
+    console.error('Error generando token de Firebase:', error);
+    res.status(500).json({ error: 'Error al generar token de Firebase' });
   }
 };

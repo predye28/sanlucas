@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { postService, contenidoService, storageService } from '../services/api';
+import { postService, contenidoService } from '../services/api';
 
 function UploadCanvas({ onClose, onPostCreated, userId }) {
   // Estados para manejar las diferentes etapas
@@ -11,14 +11,27 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
 
   // Manejar la selección de archivos
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    setSelectedFiles(files);
+    
+    // Validar archivos
+    const validFiles = files.filter(file => {
+      const isValid = (file.type.startsWith('image/') || file.type.startsWith('video/')) 
+                      && file.size <= 10 * 1024 * 1024; // 10MB máximo
+      return isValid;
+    });
+    
+    if (validFiles.length !== files.length) {
+      setError('Algunos archivos fueron omitidos. Solo se permiten imágenes y videos menores a 10MB.');
+    }
+    
+    setSelectedFiles(validFiles);
     
     // Crear URLs para previsualización
-    const urls = files.map(file => URL.createObjectURL(file));
+    const urls = validFiles.map(file => URL.createObjectURL(file));
     setPreviewUrls(urls);
   };
 
@@ -30,7 +43,8 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
   const handleDrop = (e) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files).filter(
-      file => file.type.startsWith('image/') || file.type.startsWith('video/')
+      file => (file.type.startsWith('image/') || file.type.startsWith('video/'))
+               && file.size <= 10 * 1024 * 1024
     );
     
     if (files.length > 0) {
@@ -55,23 +69,34 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
     setIsUploading(true);
     setError('');
     setUploadProgress(0);
+    setCurrentFileIndex(0);
 
     try {
       // 1. Crear el post primero
       const postData = await postService.create(title, description);
       const postId = postData.post.id;
       
-      // 2. Para cada archivo: subir y asociar al post
-      let uploadedFilesCount = 0;
-      
-      for (const file of selectedFiles) {
-        // En un futuro, esto usará Firebase Storage
-        // Por ahora usaremos el servicio del servidor para almacenar los archivos
-        await contenidoService.upload(file, postId);
+      // 2. Subir cada archivo a Firebase Storage
+      const uploadPromises = selectedFiles.map(async (file, index) => {
+        setCurrentFileIndex(index + 1);
         
-        uploadedFilesCount++;
-        setUploadProgress(Math.round((uploadedFilesCount / selectedFiles.length) * 100));
-      }
+        // Callback para el progreso individual de cada archivo
+        const onFileProgress = (progress) => {
+          // Calcular progreso total considerando todos los archivos
+          const totalProgress = ((index * 100) + progress) / selectedFiles.length;
+          setUploadProgress(Math.round(totalProgress));
+        };
+        
+        try {
+          return await contenidoService.upload(file, postId, onFileProgress);
+        } catch (error) {
+          console.error(`Error subiendo archivo ${file.name}:`, error);
+          throw error;
+        }
+      });
+      
+      // Esperar a que todos los archivos se suban
+      await Promise.all(uploadPromises);
       
       // 3. Obtener el post completo con su contenido
       const completePost = await postService.getById(postId);
@@ -81,10 +106,27 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
       
     } catch (err) {
       console.error('Error al crear el post:', err);
-      setError('Error al crear el post: ' + err.toString());
+      setError('Error al crear el post: ' + (err.message || err.toString()));
     } finally {
       setIsUploading(false);
+      setUploadProgress(0);
+      setCurrentFileIndex(0);
     }
+  };
+
+  // Remover archivo de la lista
+  const removeFile = (index) => {
+    const newFiles = [...selectedFiles];
+    const newUrls = [...previewUrls];
+    
+    // Revocar la URL del objeto para liberar memoria
+    URL.revokeObjectURL(newUrls[index]);
+    
+    newFiles.splice(index, 1);
+    newUrls.splice(index, 1);
+    
+    setSelectedFiles(newFiles);
+    setPreviewUrls(newUrls);
   };
 
   return (
@@ -132,16 +174,16 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
                 Seleccionar archivos
               </label>
               <p className="text-gray-500 text-sm mt-2">
-                Arrastra y suelta imágenes o videos, o haz clic para seleccionar
+                Arrastra y suelta imágenes o videos (máx. 10MB cada uno)
               </p>
             </div>
 
             {previewUrls.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-2">Vista previa:</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <h3 className="font-semibold mb-2">Vista previa ({selectedFiles.length} archivos):</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
                   {previewUrls.map((url, index) => (
-                    <div key={index} className="aspect-w-1 aspect-h-1 relative">
+                    <div key={index} className="relative">
                       {selectedFiles[index].type.includes('video') ? (
                         <video 
                           src={url} 
@@ -156,15 +198,7 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
                         />
                       )}
                       <button 
-                        onClick={() => {
-                          const newFiles = [...selectedFiles];
-                          const newUrls = [...previewUrls];
-                          newFiles.splice(index, 1);
-                          newUrls.splice(index, 1);
-                          setSelectedFiles(newFiles);
-                          setPreviewUrls(newUrls);
-                          URL.revokeObjectURL(url);
-                        }}
+                        onClick={() => removeFile(index)}
                         className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-700"
                       >
                         ✕
@@ -223,10 +257,12 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
 
             {isUploading && (
               <div className="mb-4">
-                <p className="text-sm text-gray-600 mb-1">Subiendo archivos: {uploadProgress}%</p>
+                <p className="text-sm text-gray-600 mb-1">
+                  Subiendo archivo {currentFileIndex} de {selectedFiles.length}: {uploadProgress}%
+                </p>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
-                    className="bg-red-800 h-2 rounded-full"
+                    className="bg-red-800 h-2 rounded-full transition-all duration-300"
                     style={{ width: `${uploadProgress}%` }}
                   ></div>
                 </div>
@@ -251,7 +287,7 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
                     : 'bg-red-800 hover:bg-red-900 text-white'
                 }`}
               >
-                {isUploading ? 'Subiendo...' : 'Publicar'}
+                {isUploading ? `Subiendo...` : 'Publicar'}
               </button>
             </div>
           </form>
