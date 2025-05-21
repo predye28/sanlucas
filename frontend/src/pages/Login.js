@@ -21,11 +21,18 @@ function Login() {
     
     try {
       setLoading(true);
-      await authService.login(username, password);
+      
+      // Login con el servidor principal
+      const userData = await authService.login(username, password);
+      
+      // Obtener el token de Firebase inmediatamente después del login
+      await authService.getFirebaseToken();
+      
       // Login exitoso, redirigir a home
       navigate('/');
     } catch (err) {
-      setError(err);
+      setError(typeof err === 'string' ? err : 'Error al iniciar sesión');
+      console.error('Error en login:', err);
     } finally {
       setLoading(false);
     }

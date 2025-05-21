@@ -1,3 +1,4 @@
+// Home.js
 import React, { useState, useEffect } from 'react';
 import { authService, postService } from '../services/api';
 import { useNavigate } from 'react-router-dom';

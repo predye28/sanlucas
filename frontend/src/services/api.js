@@ -1,9 +1,8 @@
 // api.js
-import  { firebaseStorageService }  from '../services/firebaseStorage'; // Asegúrate de que la ruta sea correcta
-
+// api.js
+import { firebaseStorageService } from '../services/firebaseStorage'; // Asegúrate de que la ruta sea correcta
 
 const API_URL = 'http://localhost:5000/api';
-
 
 // Función para manejar errores de fetch
 const handleResponse = async (response) => {
@@ -52,9 +51,90 @@ export const authService = {
     return data;
   },
   
+  // Obtener token de Firebase
+  
+  async getFirebaseToken() {
+    try {
+      const user = this.getCurrentUser();
+      console.log('Current user:', user); // ← NUEVO LOG
+      
+      if (!user) {
+        return Promise.reject('Usuario no autenticado');
+      }
+      
+      console.log('Making request to:', `${API_URL}/auth/firebase-token`); // ← NUEVO LOG
+      console.log('With token:', user.token); // ← NUEVO LOG
+      
+      // Solicitar token de Firebase al backend
+      const response = await fetch(`${API_URL}/auth/firebase-token`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+      
+      console.log('Response status:', response.status); // ← NUEVO LOG
+      console.log('Response headers:', response.headers); // ← NUEVO LOG
+      
+      const data = await handleResponse(response);
+      console.log('Final processed data:', data); // ← NUEVO LOG
+      
+      if (data && data.firebaseToken) {
+        console.log('Firebase token found:', data.firebaseToken); // ← NUEVO LOG
+        
+        // Guardar token de Firebase en localStorage
+        const updatedUser = {
+          ...user,
+          firebaseToken: data.firebaseToken,
+          firebaseTokenExpiry: Date.now() + 3600000 // Expira en 1 hora
+        };
+        
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        
+        // Autenticar con Firebase inmediatamente
+        await firebaseStorageService.authenticateWithFirebase(data.firebaseToken);
+        
+        return data.firebaseToken;
+      } else {
+        console.error('No firebaseToken in response. Data received:', data); // ← NUEVO LOG
+        throw new Error('No se pudo obtener el token de Firebase');
+      }
+    } catch (error) {
+      console.error('Error obteniendo token de Firebase:', error);
+      throw error;
+    }
+  },
+  
+  // Verificar si el token de Firebase es válido
+  isFirebaseTokenValid() {
+    const user = this.getCurrentUser();
+    
+    if (!user || !user.firebaseToken || !user.firebaseTokenExpiry) {
+      return false;
+    }
+    
+    // Verificar si ha expirado (con un margen de 5 minutos para renovarlo antes)
+    return user.firebaseTokenExpiry > (Date.now() + 300000);
+  },
+  
+  // Obtener token de Firebase, renovándolo si es necesario
+  async ensureFirebaseToken() {
+    if (!this.isFirebaseTokenValid()) {
+      return await this.getFirebaseToken();
+    }
+    
+    const user = this.getCurrentUser();
+    return user.firebaseToken;
+  },
+  
   // Cerrar sesión
   logout() {
     localStorage.removeItem('user');
+    // Intentar cerrar sesión en Firebase también
+    try {
+      firebaseStorageService.signOut();
+    } catch (error) {
+      console.warn('Error al cerrar sesión en Firebase:', error);
+    }
   },
   
   // Obtener usuario actual
@@ -140,7 +220,6 @@ export const postService = {
   }
 };
 
-
 export const contenidoService = {
   // Subir archivo usando Firebase Storage
   async upload(file, postId, onProgress = null) {
@@ -151,17 +230,13 @@ export const contenidoService = {
     }
 
     try {
-      // 1. Primero obtener token de Firebase desde tu backend
-      const firebaseTokenResponse = await fetch(`${API_URL}/auth/firebase-token`, {
-        headers: {
-          'Authorization': `Bearer ${user.token}`
-        }
-      });
+      // 1. Asegurarse de tener un token válido de Firebase
+      const firebaseToken = await authService.ensureFirebaseToken();
       
-      const { firebaseToken } = await handleResponse(firebaseTokenResponse);
-      
-      // 2. Autenticar con Firebase
-      await firebaseStorageService.authenticateWithFirebase(firebaseToken);
+      // 2. Verificar autenticación con Firebase (si es necesario)
+      if (!firebaseStorageService.isAuthenticated()) {
+        await firebaseStorageService.authenticateWithFirebase(firebaseToken);
+      }
       
       // 3. Subir archivo a Firebase Storage
       const uploadResult = await firebaseStorageService.uploadFile(
@@ -217,15 +292,19 @@ export const contenidoService = {
   }
 };
 
-// Servicio de almacenamiento - ACTUALIZADO
+// Servicio de almacenamiento
 export const storageService = {
   // Subir archivo a Firebase Storage (interfaz simplificada)
   async uploadFile(file, userId, postId, onProgress = null) {
+    // Asegurarse de tener un token válido antes de intentar subir
+    await authService.ensureFirebaseToken();
     return firebaseStorageService.uploadFile(file, userId, postId, onProgress);
   },
   
   // Eliminar archivo de Firebase Storage
   async deleteFile(filePath) {
+    // Asegurarse de tener un token válido antes de intentar eliminar
+    await authService.ensureFirebaseToken();
     return firebaseStorageService.deleteFile(filePath);
   }
 };

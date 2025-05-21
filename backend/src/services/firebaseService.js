@@ -4,24 +4,47 @@ class FirebaseService {
   
   // Generar token personalizado para autenticación en el frontend
   async generateCustomToken(userId) {
-  try {
-    // Convertir el ID a string (muy importante)
-    const userIdStr = userId.toString();
-    
-    // Este objeto de claims es crucial - debe coincidir con tus reglas de Firebase
-    const additionalClaims = {
-      user_id: userIdStr // Exactamente como aparece en tus reglas
-    };
-    
-    console.log(`Generando token para usuario ${userIdStr} con claims:`, additionalClaims);
-    
-    const customToken = await auth.createCustomToken(userIdStr, additionalClaims);
-    return customToken;
-  } catch (error) {
-    console.error('Error generando custom token:', error);
-    throw new Error(`Error generando token de Firebase: ${error.message}`);
+    try {
+      // Convertir el ID a string (muy importante)
+      const userIdStr = userId.toString();
+      
+      // Este objeto de claims es crucial - debe coincidir con tus reglas de Firebase
+      const additionalClaims = {
+        user_id: userIdStr // Exactamente como aparece en tus reglas
+      };
+      
+      console.log(`Generando token para usuario ${userIdStr} con claims:`, additionalClaims);
+      
+      const customToken = await auth.createCustomToken(userIdStr, additionalClaims);
+      return customToken;
+    } catch (error) {
+      console.error('Error generando custom token:', error);
+      throw new Error(`Error generando token de Firebase: ${error.message}`);
+    }
   }
-}
+
+  // Verificar permisos de usuario para un archivo
+  async verifyUserPermission(userId, filePath) {
+    // Extraer partes de la ruta para validar
+    const parts = filePath.split('/');
+    if (parts[0] === 'posts' && parts[1]) {
+      // Si es una ruta de posts, verificar que el userId coincida
+      return parts[1] === userId.toString();
+    }
+    return false;
+  }
+
+
+  // Generar ruta para un post
+  getPostFilePath(userId, postId, filename) {
+    return `posts/${userId}/${postId}/${filename}`;
+  }
+
+  // Obtener URL pública
+  async getPublicUrl(filePath) {
+    return `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+  }
+
 
   // Verificar si un archivo existe en Storage
   async fileExists(filePath) {

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { postService, contenidoService } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { postService, contenidoService, authService } from '../services/api';
 
 function UploadCanvas({ onClose, onPostCreated, userId }) {
   // Estados para manejar las diferentes etapas
@@ -12,6 +12,23 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
   const [error, setError] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
+  
+  // Verificar token de Firebase al cargar el componente
+  useEffect(() => {
+    async function verifyFirebaseAuth() {
+      try {
+        // Verificar si tenemos token de Firebase y es válido
+        if (!authService.isFirebaseTokenValid()) {
+          await authService.getFirebaseToken();
+        }
+      } catch (error) {
+        console.error('Error verificando autenticación de Firebase:', error);
+        setError('Error al preparar la subida de archivos. Intenta recargar la página.');
+      }
+    }
+    
+    verifyFirebaseAuth();
+  }, []);
 
   // Manejar la selección de archivos
   const handleFileChange = (e) => {
@@ -72,37 +89,40 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
     setCurrentFileIndex(0);
 
     try {
+      // Asegurar que tenemos un token de Firebase válido antes de subir
+      await authService.ensureFirebaseToken();
+      
       // 1. Crear el post primero
       const postData = await postService.create(title, description);
       const postId = postData.post.id;
       
       // 2. Subir cada archivo a Firebase Storage
-      const uploadPromises = selectedFiles.map(async (file, index) => {
-        setCurrentFileIndex(index + 1);
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        setCurrentFileIndex(i + 1);
         
         // Callback para el progreso individual de cada archivo
         const onFileProgress = (progress) => {
           // Calcular progreso total considerando todos los archivos
-          const totalProgress = ((index * 100) + progress) / selectedFiles.length;
+          const totalProgress = ((i * 100) + progress) / selectedFiles.length;
           setUploadProgress(Math.round(totalProgress));
         };
         
         try {
-          return await contenidoService.upload(file, postId, onFileProgress);
+          await contenidoService.upload(file, postId, onFileProgress);
         } catch (error) {
           console.error(`Error subiendo archivo ${file.name}:`, error);
-          throw error;
+          // Continuar con el siguiente archivo en lugar de abortar toda la operación
+          setError(`Error subiendo ${file.name}. Se continuará con los demás archivos.`);
         }
-      });
-      
-      // Esperar a que todos los archivos se suban
-      await Promise.all(uploadPromises);
+      }
       
       // 3. Obtener el post completo con su contenido
       const completePost = await postService.getById(postId);
       
       // Llamamos a la función proporcionada por el componente padre
       onPostCreated(completePost.post);
+      onClose();
       
     } catch (err) {
       console.error('Error al crear el post:', err);
@@ -268,15 +288,19 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
                 </div>
               </div>
             )}
-            
-            <div className="flex justify-between mt-4">
+
+            <div className="flex justify-between mt-6">
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 px-4 rounded"
                 disabled={isUploading}
+                className={`py-2 px-4 rounded ${
+                  isUploading
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+                }`}
               >
-                Atrás
+                Volver
               </button>
               <button
                 type="submit"
@@ -287,7 +311,7 @@ function UploadCanvas({ onClose, onPostCreated, userId }) {
                     : 'bg-red-800 hover:bg-red-900 text-white'
                 }`}
               >
-                {isUploading ? `Subiendo...` : 'Publicar'}
+                {isUploading ? 'Subiendo...' : 'Publicar'}
               </button>
             </div>
           </form>

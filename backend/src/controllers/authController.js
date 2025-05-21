@@ -1,3 +1,4 @@
+// authController.js
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const usuarioModel = require('../models/usuario');
@@ -83,12 +84,18 @@ exports.getFirebaseToken = async (req, res) => {
     // Generar token personalizado de Firebase
     const firebaseToken = await firebaseService.generateCustomToken(userId);
     
+    // CAMBIO: Usar 'firebaseToken' en lugar de 'token' para ser consistente con el frontend
     res.json({
-      firebaseToken,
+      success: true,
+      firebaseToken: firebaseToken,  // ← Cambio aquí
+      expiresIn: 3600, // Los tokens personalizados de Firebase suelen durar 1 hora
       mensaje: 'Token de Firebase generado exitosamente'
     });
   } catch (error) {
     console.error('Error generando token de Firebase:', error);
-    res.status(500).json({ error: 'Error al generar token de Firebase' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Error al generar token de Firebase' 
+    });
   }
 };
