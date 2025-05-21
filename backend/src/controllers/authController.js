@@ -36,10 +36,9 @@ exports.registro = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    
+    const { username, password } = req.body;
     // Buscar usuario
-    const usuario = await usuarioModel.buscarPorEmail(email);
+    const usuario = await usuarioModel.buscarPorUsername(username);
     if (!usuario) {
       return res.status(400).json({ error: 'Credenciales inválidas' });
     }

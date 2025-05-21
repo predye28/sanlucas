@@ -29,7 +29,12 @@ const usuarioModel = {
     const result = await db.query(query, [email]);
     return result.rows[0];
   },
-  
+  // Buscar usuario por username
+  async buscarPorUsername(username) {
+    const query = 'SELECT * FROM usuarios WHERE username = $1';
+    const result =await db.query(query, [username]);
+    return result.rows[0];
+  },
   // Buscar usuario por ID
   async buscarPorId(id) {
     const query = 'SELECT id, username, email, foto_perfil_url, fecha_registro FROM usuarios WHERE id = $1';

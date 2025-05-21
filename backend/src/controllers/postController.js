@@ -26,7 +26,6 @@ exports.obtenerPostsUsuario = async (req, res) => {
   try {
     const usuarioId = req.params.usuarioId || req.usuario.id;
     const posts = await postModel.obtenerPorUsuario(usuarioId);
-    
     res.json({ posts });
   } catch (error) {
     console.error('Error al obtener posts:', error);
